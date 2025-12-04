@@ -1,13 +1,14 @@
 use axum::{
     extract::{ws::{Message, WebSocket, WebSocketUpgrade}, State},
-    response::IntoResponse,
+    response::{IntoResponse, Json},
     routing::{get, post},
     Router,
 };
+use tower_http::services::ServeDir;
 use futures::{sink::SinkExt, stream::StreamExt};
 use std::sync::{Arc, Mutex};
-
 use tokio::sync::mpsc;
+use serde::Serialize;
 
 mod db;
 use db::init_db;
@@ -18,6 +19,23 @@ use uuid;
 struct AppState {
     clients: Arc<Mutex<Vec<mpsc::Sender<Message>>>>,
     pool: Pool<Sqlite>,
+}
+
+#[derive(Serialize)]
+struct Stats {
+    activeWorkers: usize,
+    totalTflops: f64,
+    jobsCompleted: usize,
+}
+
+#[derive(Serialize)]
+struct WorkerInfo {
+    id: String,
+    hostname: String,
+    ip: String,
+    gpu: String,
+    status: String,
+    task: String,
 }
 
 #[tokio::main]
@@ -35,11 +53,43 @@ async fn main() {
     let app = Router::new()
         .route("/ws", get(ws_handler))
         .route("/job", post(submit_job))
+        .route("/api/stats", get(get_stats))
+        .route("/api/workers", get(get_workers))
+        .nest_service("/", ServeDir::new("../coordinator-dashboard/dist"))
         .with_state(app_state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     println!("Coordinator listening on 0.0.0.0:3000");
     axum::serve(listener, app).await.unwrap();
+}
+
+async fn get_stats(State(state): State<AppState>) -> Json<Stats> {
+    let worker_count = state.clients.lock().unwrap().len();
+    // Mocking TFLOPS and Jobs for demo purposes until we track them
+    Json(Stats {
+        activeWorkers: worker_count,
+        totalTflops: (worker_count as f64) * 45.5, 
+        jobsCompleted: 14203 + (worker_count * 12),
+    })
+}
+
+async fn get_workers(State(state): State<AppState>) -> Json<Vec<WorkerInfo>> {
+    let count = state.clients.lock().unwrap().len();
+    let mut workers = Vec::new();
+    
+    // Generate mock info for connected workers
+    for i in 0..count {
+        workers.push(WorkerInfo {
+            id: format!("w{}", i),
+            hostname: format!("Worker-{:02}", i + 1),
+            ip: format!("192.168.1.1{:02}", i),
+            gpu: if i % 2 == 0 { "RTX 4090".to_string() } else { "A100".to_string() },
+            status: "busy".to_string(),
+            task: "Prime Search".to_string(),
+        });
+    }
+    
+    Json(workers)
 }
 
 async fn ws_handler(
@@ -77,9 +127,6 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         }
     });
 
-    // Send welcome message
-    // Note: This assumes the client is still the last one added, which might not be true in a concurrent scenario.
-    // A more robust solution would involve storing a client ID and sending to that specific client.
     // Send welcome message
     let welcome_tx = {
         let guard = state.clients.lock().unwrap();
