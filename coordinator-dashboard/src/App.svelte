@@ -54,25 +54,42 @@
     }
   }
 
-  // Mock data for UI development if no backend connection
-  if (!connected) {
+  // Mock data for UI development or Demo Mode
+  if (!connected || workers.length === 0) {
     workers = [
-      { id: 'w1', hostname: 'Worker-Alpha', ip: '192.168.1.101', gpu: 'RTX 4090', status: 'busy', task: 'Prime Search' },
-      { id: 'w2', hostname: 'Worker-Beta', ip: '192.168.1.102', gpu: 'RTX 3080', status: 'idle', task: '-' },
-      { id: 'w3', hostname: 'Worker-Gamma', ip: '192.168.1.103', gpu: 'A100', status: 'busy', task: 'String Search' },
+      { id: 'w1', hostname: 'Worker-Titan', role: 'LLM Training', gpu: 'NVIDIA H100 (80GB)', cpu: 'AMD EPYC 9654', status: 'busy', task: 'Llama-3 Fine-tuning' },
+      { id: 'w2', hostname: 'Worker-Alpha', role: 'Inference', gpu: 'RTX 4090 (24GB)', cpu: 'i9-14900K', status: 'busy', task: 'Stable Diffusion XL' },
+      { id: 'w3', hostname: 'Worker-Beta', role: '3D Rendering', gpu: 'RTX A6000 (48GB)', cpu: 'Threadripper 7980X', status: 'idle', task: '-' },
+      { id: 'w4', hostname: 'Worker-Gamma', role: 'Small Inference', gpu: 'RTX 3060 (12GB)', cpu: 'Ryzen 5 5600X', status: 'busy', task: 'String Search' },
+      { id: 'w5', hostname: 'Worker-Delta', role: 'Mobile Dev', gpu: 'RTX 4070 Mobile', cpu: 'i7-13700H', status: 'idle', task: '-' },
+      { id: 'w6', hostname: 'Worker-Epsilon', role: 'Local LLM', gpu: 'Apple M2 Ultra', cpu: 'ARM64', status: 'busy', task: 'Mistral 7B' },
+      { id: 'w7', hostname: 'Worker-Zeta', role: 'Edge AI', gpu: 'Adreno 750', cpu: 'Snapdragon 8 Gen 3', status: 'idle', task: '-' },
+      { id: 'w8', hostname: 'Worker-Eta', role: 'IoT Gateway', gpu: 'Ampere (2048 Cores)', cpu: 'Orin AGX', status: 'busy', task: 'Sensor Fusion' },
+      { id: 'w9', hostname: 'Worker-Kappa', role: 'Education', gpu: 'Maxwell (128 Cores)', cpu: 'Jetson Nano', status: 'offline', task: '-' },
+      { id: 'w10', hostname: 'Worker-Lambda', role: 'Industrial', gpu: 'Volta (384 Cores)', cpu: 'Xavier NX', status: 'idle', task: '-' },
     ];
-    stats = { activeWorkers: 3, totalTflops: 125.5, jobsCompleted: 1420 };
+    stats = { activeWorkers: 10, totalTflops: 2450.5, jobsCompleted: 14203 };
   }
+
+  let capabilities = [
+    { code: 'Pd', title: 'People Detection', desc: 'timestamps of person appearances, or True/False if any person present', style: 'border-cyan-500 text-cyan-400 hover:bg-cyan-500/10 hover:shadow-[0_0_10px_rgba(6,182,212,0.5)]', count: 8 },
+    { code: 'Pr', title: 'Person Re‑Identification', desc: 'timestamps where a specific person reappears across cameras', style: 'border-purple-500 text-purple-400 hover:bg-purple-500/10 hover:shadow-[0_0_10px_rgba(168,85,247,0.5)]', count: 3 },
+    { code: 'Ot', title: 'Object Tracking', desc: 'timestamps of object movement across frames', style: 'border-emerald-500 text-emerald-400 hover:bg-emerald-500/10 hover:shadow-[0_0_10px_rgba(16,185,129,0.5)]', count: 6 },
+    { code: 'Vd', title: 'Vehicle Detection', desc: 'timestamps of car appearances, or True/False if any car present', style: 'border-orange-500 text-orange-400 hover:bg-orange-500/10 hover:shadow-[0_0_10px_rgba(249,115,22,0.5)]', count: 4 },
+    { code: 'Lp', title: 'License Plate Recognition', desc: 'timestamps of a specific plate, or True/False if matched', style: 'border-rose-500 text-rose-400 hover:bg-rose-500/10 hover:shadow-[0_0_10px_rgba(244,63,94,0.5)]', count: 2 },
+    { code: 'Vs', title: 'Video Search / Retrieval', desc: 'timestamps of query match, or True/False if found', style: 'border-fuchsia-500 text-fuchsia-400 hover:bg-fuchsia-500/10 hover:shadow-[0_0_10px_rgba(217,70,239,0.5)]', count: 5 }
+  ];
 </script>
 
 <main class="min-h-screen bg-hpc-dark text-gray-200 p-8 font-sans">
   <!-- Header -->
   <header class="flex justify-between items-center mb-8 border-b border-gray-800 pb-4">
     <div class="flex items-center gap-4">
-      <div class="w-3 h-3 rounded-full {connected ? 'bg-hpc-green shadow-[0_0_10px_#00ff9d]' : 'bg-red-500'}"></div>
+      <img src="/logo.png" alt="NeuraGrid Logo" class="h-12 w-auto object-contain" />
       <h1 class="text-3xl font-bold tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-hpc-cyan to-purple-500">
-        NEURAGRID <span class="text-sm font-mono text-gray-500">COORDINATOR v1.0</span>
+        NeuraGrid Dashboard <span class="text-sm font-mono text-gray-500">v1.0</span>
       </h1>
+      <div class="w-3 h-3 rounded-full {connected ? 'bg-hpc-green shadow-[0_0_10px_#00ff9d]' : 'bg-red-500'}"></div>
     </div>
     <div class="font-mono text-sm text-hpc-cyan">
       {new Date().toLocaleTimeString()}
@@ -114,44 +131,79 @@
       <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
         <span class="text-hpc-cyan">///</span> WORKER NODES
       </h2>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <!-- Compact Grid: 2 columns on medium, 3 on large, 4 on xl -->
+      <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
         {#each workers as worker}
-          <div class="bg-hpc-blue border border-gray-700 rounded-lg p-4 hover:border-hpc-cyan transition-colors relative overflow-hidden">
-            <div class="flex justify-between items-start mb-4">
-              <div>
-                <h3 class="font-bold text-lg">{worker.hostname}</h3>
-                <p class="text-xs text-gray-500 font-mono">{worker.ip}</p>
+          <div class="group bg-hpc-blue border border-gray-700 rounded-lg p-3 hover:border-hpc-cyan transition-all relative overflow-hidden cursor-default h-24 hover:h-auto hover:z-10 hover:shadow-2xl hover:bg-gray-800">
+            
+            <!-- Compact View -->
+            <div class="flex justify-between items-start mb-2">
+              <div class="truncate">
+                <h3 class="font-bold text-sm text-gray-200 truncate">{worker.hostname}</h3>
+                <p class="text-[10px] text-gray-500 font-mono uppercase">{worker.role || 'Worker Node'}</p>
               </div>
-              <span class="px-2 py-1 rounded text-xs font-bold uppercase {worker.status === 'busy' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-green-500/20 text-green-500'}">
-                {worker.status}
-              </span>
+              <div class="w-2 h-2 rounded-full {worker.status === 'busy' ? 'bg-yellow-500 animate-pulse' : worker.status === 'offline' ? 'bg-red-500' : 'bg-green-500'}"></div>
             </div>
             
-            <div class="space-y-2">
-              <div class="flex justify-between text-sm">
+            <!-- Progress Bar (Always Visible) -->
+            <div class="h-1 bg-gray-700 rounded-full overflow-hidden mb-2">
+              <div class="h-full bg-hpc-cyan" style="width: {worker.status === 'busy' ? '80%' : '5%'}"></div>
+            </div>
+
+            <!-- Expanded Details (Visible on Hover) -->
+            <div class="hidden group-hover:block space-y-1 pt-2 border-t border-gray-700 mt-2">
+              <div class="flex justify-between text-[10px]">
                 <span class="text-gray-500">GPU</span>
                 <span class="font-mono text-hpc-cyan">{worker.gpu}</span>
               </div>
-              <div class="flex justify-between text-sm">
+              <div class="flex justify-between text-[10px]">
+                <span class="text-gray-500">CPU</span>
+                <span class="font-mono text-gray-300">{worker.cpu}</span>
+              </div>
+              <div class="flex justify-between text-[10px]">
                 <span class="text-gray-500">Task</span>
-                <span class="font-mono truncate max-w-[150px]">{worker.task}</span>
+                <span class="font-mono text-yellow-500 truncate">{worker.task}</span>
               </div>
             </div>
-            
-            <!-- Activity Bar -->
-            <div class="mt-4 h-1 bg-gray-700 rounded-full overflow-hidden">
-              <div class="h-full bg-hpc-cyan animate-pulse" style="width: {worker.status === 'busy' ? '80%' : '5%'}"></div>
-            </div>
+
           </div>
         {/each}
       </div>
     </div>
 
-    <!-- Job Log -->
-    <div class="bg-hpc-blue/30 border border-gray-800 rounded-xl p-6 h-[600px] flex flex-col">
-      <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
-        <span class="text-purple-500">///</span> SYSTEM LOG
-      </h2>
+    <!-- Right Column -->
+    <div class="space-y-6">
+      
+      <!-- Capabilities Card -->
+      <div class="bg-hpc-blue/30 border border-gray-800 rounded-xl p-6">
+        <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
+          <span class="text-hpc-green">///</span> GRID CAPABILITIES
+        </h2>
+        <div class="flex flex-wrap gap-2">
+          {#each capabilities as cap}
+            <div class="group relative">
+              <div class="w-10 h-10 flex items-center justify-center bg-gray-800/50 rounded-lg text-sm font-bold cursor-help transition-all duration-300 border {cap.style} relative">
+                {cap.code}
+                <div class="absolute -top-2 -right-2 bg-gray-900 border border-gray-600 text-[9px] text-gray-300 rounded-full w-4 h-4 flex items-center justify-center shadow-sm">
+                  {cap.count}
+                </div>
+              </div>
+              <!-- Tooltip -->
+              <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-48 p-2 bg-gray-900 border border-gray-600 rounded shadow-xl text-xs text-gray-300 z-10 hidden group-hover:block pointer-events-none">
+                <strong class="block text-blue-400 mb-1">{cap.title}</strong>
+                {cap.desc}
+                <div class="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1 border-4 border-transparent border-t-gray-600"></div>
+              </div>
+            </div>
+          {/each}
+        </div>
+      </div>
+
+      <!-- Job Log -->
+      <div class="bg-hpc-blue/30 border border-gray-800 rounded-xl p-6 h-[500px] flex flex-col">
+        <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
+          <span class="text-purple-500">///</span> SYSTEM LOG
+        </h2>
       <div class="flex-1 overflow-y-auto font-mono text-sm space-y-2 pr-2 custom-scrollbar">
         {#each jobs as job}
           <div class="p-2 border-l-2 {job.status === 'failed' ? 'border-red-500 bg-red-500/10' : 'border-hpc-green bg-green-500/5'}">
