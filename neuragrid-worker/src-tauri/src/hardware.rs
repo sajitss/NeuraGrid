@@ -68,9 +68,11 @@ impl HardwareMonitor {
         let mut gpus = Vec::new();
 
         println!("Scanning for GPUs...");
+        let _ = self.app_handle.emit("log-message", "Scanning for GPUs...");
         for adapter in instance.enumerate_adapters(Backends::all()) {
             let info = adapter.get_info();
             println!("Found adapter: {:?} (Backend: {:?})", info.name, info.backend);
+            let _ = self.app_handle.emit("log-message", format!("Found adapter: {} (Backend: {:?})", info.name, info.backend));
             
             gpus.push(GpuInfo {
                 name: info.name,
@@ -87,6 +89,7 @@ impl HardwareMonitor {
             if let Some(adapter) = instance.request_adapter(&wgpu::RequestAdapterOptions::default()).await {
                  let info = adapter.get_info();
                  println!("Fallback adapter found: {:?}", info.name);
+                 let _ = self.app_handle.emit("log-message", format!("Fallback adapter found: {}", info.name));
                  gpus.push(GpuInfo {
                     name: info.name,
                     vendor: format!("{:?}", info.vendor),
@@ -98,6 +101,7 @@ impl HardwareMonitor {
         }
 
         println!("Total GPUs detected: {}", gpus.len());
+        let _ = self.app_handle.emit("log-message", format!("Total GPUs detected: {}", gpus.len()));
         gpus
     }
 }

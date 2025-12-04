@@ -9,6 +9,7 @@ NeuraGrid is a high-performance, cross-platform distributed computing system des
 *   **Cross-Platform Workers**: Runs on Windows, Linux, and macOS (Apple Silicon).
 *   **Hardware Agnostic**: Supports NVIDIA GPUs (CUDA), AMD/Intel (OpenCL/Vulkan), ARM NPUs (Qualcomm Hexagon), and CPUs.
 *   **Real-Time Dashboard**: "Mission Control" style interface for monitoring the grid.
+*   **Live System Logs**: Real-time broadcasting of job submissions, assignments, and completions to the dashboard.
 *   **Capability Profiling**: Automatically detects and tags workers with capabilities like People Detection (Pd), Object Tracking (Ot), etc.
 *   **Persistent State**: SQLite-backed job history and worker tracking.
 *   **Secure Communication**: WebSocket-based real-time command and control.
@@ -35,7 +36,7 @@ The system consists of three main components:
 3.  **Dashboard (`/coordinator-dashboard`)**:
     *   **Role**: The eyes. Visualizes grid health and activity.
     *   **Tech Stack**: Svelte, TailwindCSS, Vite.
-    *   **Features**: Live worker stats, job logs, capability visualization.
+    *   **Features**: Live worker stats, real-time system logs, capability visualization, and job queue monitoring.
 
 ## 🛠️ Installation & Usage
 
@@ -84,7 +85,19 @@ curl -X POST http://localhost:3000/job \
     "job_type": "string_search",
     "args": ["C:\\path\\to\\file.txt", "search_term", "context_lines"]
   }'
+    "args": ["C:\\path\\to\\file.txt", "search_term", "context_lines"]
+  }'
 ```
+
+**PowerShell Example:**
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:3000/job" -Method Post -Body '{"job_type": "string_search", "args": ["C:\\temp\\test.txt", "Hello", "success"]}' -ContentType "application/json"
+```
+
+## 📚 Documentation
+
+*   [Capability Onboarding Guide](docs/CAPABILITY_ONBOARDING.md): How to add new capabilities.
+*   [Directory Structure](docs/DIRECTORY_STRUCTURE.md): Codebase organization for capabilities.
 
 ## 🧩 Worker Capabilities
 

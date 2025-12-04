@@ -1,6 +1,8 @@
 mod connection;
 mod hardware;
 mod runner;
+mod capabilities;
+mod profiles;
 use connection::ConnectionManager;
 use hardware::HardwareMonitor;
 
@@ -11,7 +13,9 @@ fn main() {
     .setup(|app| {
         let handle = app.handle().clone();
         tauri::async_runtime::spawn(async move {
-            let manager = ConnectionManager::new(handle.clone(), "ws://127.0.0.1:3000/ws".to_string());
+            let id = uuid::Uuid::new_v4().to_string();
+            let name = format!("Worker-{}", &id[0..4]); // Simple name like Worker-1a2b
+            let manager = ConnectionManager::new(handle.clone(), "ws://127.0.0.1:3000/ws".to_string(), name);
             manager.start().await;
         });
 

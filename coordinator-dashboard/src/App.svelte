@@ -10,9 +10,14 @@
     totalTflops: 0,
     jobsCompleted: 0
   });
+  let showQueue = $state(false);
+  let queueData = $state({});
 
   onMount(() => {
     connectWebSocket();
+    fetchQueue(); // Fetch initial queue data
+    // Poll queue every 5 seconds
+    setInterval(fetchQueue, 5000);
   });
 
   function connectWebSocket() {
@@ -33,6 +38,22 @@
       const data = JSON.parse(event.data);
       handleMessage(data);
     };
+  }
+
+  async function fetchQueue() {
+    try {
+        const res = await fetch('http://localhost:3000/api/queue');
+        queueData = await res.json();
+    } catch (e) {
+        console.error("Failed to fetch queue", e);
+    }
+  }
+
+  function toggleQueue() {
+    showQueue = !showQueue;
+    if (showQueue) {
+        fetchQueue();
+    }
   }
 
   function handleMessage(data) {
@@ -169,6 +190,27 @@
           </div>
         {/each}
       </div>
+
+      <!-- System Log -->
+      <div class="mt-8 bg-hpc-blue/30 border border-gray-800 rounded-xl p-6 h-[500px] flex flex-col">
+        <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
+          <span class="text-purple-500">///</span> SYSTEM LOG
+        </h2>
+        <div class="flex-1 overflow-y-auto font-mono text-sm space-y-2 pr-2 custom-scrollbar">
+          {#each jobs as job}
+            <div class="p-2 border-l-2 {job.status === 'failed' ? 'border-red-500 bg-red-500/10' : 'border-hpc-green bg-green-500/5'}">
+              <div class="flex justify-between text-xs text-gray-500 mb-1">
+                <span>{job.id.slice(0,8)}</span>
+                <span>{new Date(job.timestamp).toLocaleTimeString()}</span>
+              </div>
+              <p class="text-gray-300">{job.message}</p>
+            </div>
+          {/each}
+          {#if jobs.length === 0}
+            <div class="text-gray-600 text-center mt-10">No recent activity</div>
+          {/if}
+        </div>
+      </div>
     </div>
 
     <!-- Right Column -->
@@ -199,26 +241,31 @@
         </div>
       </div>
 
-      <!-- Job Log -->
-      <div class="bg-hpc-blue/30 border border-gray-800 rounded-xl p-6 h-[500px] flex flex-col">
-        <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
-          <span class="text-purple-500">///</span> SYSTEM LOG
-        </h2>
-      <div class="flex-1 overflow-y-auto font-mono text-sm space-y-2 pr-2 custom-scrollbar">
-        {#each jobs as job}
-          <div class="p-2 border-l-2 {job.status === 'failed' ? 'border-red-500 bg-red-500/10' : 'border-hpc-green bg-green-500/5'}">
-            <div class="flex justify-between text-xs text-gray-500 mb-1">
-              <span>{job.id.slice(0,8)}</span>
-              <span>{new Date(job.timestamp).toLocaleTimeString()}</span>
-            </div>
-            <p class="text-gray-300">{job.message}</p>
-          </div>
-        {/each}
-        {#if jobs.length === 0}
-          <div class="text-gray-600 text-center mt-10">No recent activity</div>
-        {/if}
+      <!-- Pending Tags Queue -->
+      <div class="bg-hpc-blue/30 border border-gray-800 rounded-xl p-6">
+        <h4 class="text-xl font-bold mb-4 flex justify-between items-center">
+            <span class="flex items-center gap-2"><span class="text-blue-500">///</span> PENDING TAGS</span>
+            <button onclick={fetchQueue} class="text-xs text-hpc-cyan hover:underline font-mono">REFRESH</button>
+        </h4>
+        <div class="flex-1 overflow-y-auto custom-scrollbar space-y-3 max-h-[300px]">
+            {#each Object.entries(queueData) as [tag, count]}
+                <div>
+                    <div class="flex justify-between text-xs mb-1">
+                        <span class="font-mono text-blue-400">{tag}</span>
+                        <span class="text-gray-400">{count}</span>
+                    </div>
+                    <!-- Queue Depth Line -->
+                    <div class="h-1 bg-gray-800 rounded-full overflow-hidden">
+                        <div class="h-full bg-blue-500" style="width: {Math.min(count * 5, 100)}%"></div>
+                    </div>
+                </div>
+            {/each}
+            {#if Object.keys(queueData).length === 0}
+                <div class="text-xs text-gray-500 text-center py-4">No pending tags</div>
+            {/if}
+        </div>
       </div>
-    </div>
+
   </div>
 </main>
 

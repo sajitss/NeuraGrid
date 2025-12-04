@@ -3,6 +3,7 @@
   import { listen } from '@tauri-apps/api/event';
   
   let status = "Disconnected";
+  let workerName = "Initializing...";
   let gpuUsage = 0;
   let earnings = 0.00;
   let logs: string[] = [];
@@ -27,8 +28,10 @@
     
     try {
       const unlistenStatus = await listen<string>('connection-status', (event) => {
-        status = event.payload;
-        addLog(`Connection status: ${status}`);
+        if (status !== event.payload) {
+            status = event.payload;
+            addLog(`Connection status: ${status}`);
+        }
       });
       unlisten.push(unlistenStatus);
 
@@ -42,6 +45,16 @@
         addLog(event.payload);
       });
       unlisten.push(unlistenJob);
+
+      const unlistenLog = await listen<string>('log-message', (event) => {
+        addLog(event.payload);
+      });
+      unlisten.push(unlistenLog);
+
+      const unlistenName = await listen<string>('worker-name', (event) => {
+        workerName = event.payload;
+      });
+      unlisten.push(unlistenName);
     } catch (e) {
       console.error("Failed to setup listeners", e);
       addLog(`Error: ${e}`);
@@ -57,9 +70,12 @@
   <header class="flex justify-between items-center mb-8">
     <div class="flex items-center gap-4">
       <img src="/logo.png" alt="NeuraGrid Logo" class="h-12 w-12 object-contain" />
-      <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-600">
-        NeuraGrid Worker
-      </h1>
+      <div>
+        <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-600">
+            NeuraGrid Worker
+        </h1>
+        <p class="text-sm text-gray-400 font-mono">@{workerName}</p>
+      </div>
     </div>
     <div class="flex gap-2">
        <div class="px-3 py-1 rounded-full bg-gray-800 border border-gray-700 text-sm">

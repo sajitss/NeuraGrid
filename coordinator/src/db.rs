@@ -21,6 +21,7 @@ pub async fn init_db() -> Result<Pool<Sqlite>, sqlx::Error> {
             job_type TEXT NOT NULL,
             args TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
+            tags TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )",
     )

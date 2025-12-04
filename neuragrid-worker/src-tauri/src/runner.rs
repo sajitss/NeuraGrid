@@ -5,6 +5,8 @@ use tauri::Emitter;
 use tracing::{info, error};
 use wgpu;
 
+use tokio::sync::mpsc;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Job {
     #[serde(default)]
@@ -16,20 +18,46 @@ pub struct Job {
     pub args: Vec<String>,
     #[serde(default)]
     pub env: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 pub struct JobRunner {
     app_handle: tauri::AppHandle,
+    sender: Option<mpsc::Sender<String>>,
 }
 
 impl JobRunner {
-    pub fn new(app_handle: tauri::AppHandle) -> Self {
-        Self { app_handle }
+    pub fn new(app_handle: tauri::AppHandle, sender: Option<mpsc::Sender<String>>) -> Self {
+        Self { app_handle, sender }
     }
 
     pub async fn run_job(&self, job: Job) {
-        info!("Starting job: {}", job.id);
-        let _ = self.app_handle.emit("job-status", format!("Starting job {} ({})", job.id, job.job_type));
+        info!("Starting job: {} (Tags: {:?})", job.id, job.tags);
+        let _ = self.app_handle.emit("job-status", format!("Starting job {} ({}) Tags: {:?}", job.id, job.job_type, job.tags));
+
+        if let Some(cap) = crate::profiles::get_active_profile().iter().find(|c| c.code() == job.job_type) {
+            info!("Dispatching job {} to capability {}", job.id, cap.code());
+            let _ = self.app_handle.emit("job-status", format!("Dispatching job {} to capability {}", job.id, cap.code()));
+            
+            match cap.execute(job.args).await {
+                Ok(result) => {
+                    info!("Job {} finished: {}", job.id, result);
+                    let _ = self.app_handle.emit("job-status", format!("Job {} finished: {}", job.id, result));
+                    if let Some(tx) = &self.sender {
+                        let _ = tx.send(format!("Job Completed: {}", job.id)).await;
+                    }
+                }
+                Err(e) => {
+                    error!("Job {} failed: {}", job.id, e);
+                    let _ = self.app_handle.emit("job-status", format!("Job {} failed: {}", job.id, e));
+                    if let Some(tx) = &self.sender {
+                        let _ = tx.send(format!("Job Failed: {}", job.id)).await;
+                    }
+                }
+            }
+            return;
+        }
 
         if job.job_type == "prime_search" {
             let start: u64 = job.args.get(0).and_then(|s| s.parse().ok()).unwrap_or(0);
