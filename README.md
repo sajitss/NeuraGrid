@@ -13,6 +13,10 @@ NeuraGrid is a high-performance, cross-platform distributed computing system des
 *   **Persistent State**: SQLite-backed job history and worker tracking.
 *   **Secure Communication**: WebSocket-based real-time command and control.
 
+## 💡 How It Works
+
+![NeuraGrid System Concept](assets/infographic.jpg)
+
 ## 🏗️ Architecture
 
 The system consists of three main components:
