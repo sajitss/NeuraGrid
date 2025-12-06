@@ -28,5 +28,15 @@ pub async fn init_db() -> Result<Pool<Sqlite>, sqlx::Error> {
     .execute(&pool)
     .await?;
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS workers (
+            name TEXT PRIMARY KEY,
+            earnings REAL DEFAULT 0.0,
+            last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
+        )",
+    )
+    .execute(&pool)
+    .await?;
+
     Ok(pool)
 }

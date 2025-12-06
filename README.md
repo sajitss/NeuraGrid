@@ -96,6 +96,7 @@ Invoke-RestMethod -Uri "http://127.0.0.1:3000/job" -Method Post -Body '{"job_typ
 
 ## 📚 Documentation
 
+*   **[CLI Usage Guide](docs/CLI_USAGE.md)**: Detailed instructions for using the `neuragrid-cli`.
 *   [Capability Onboarding Guide](docs/CAPABILITY_ONBOARDING.md): How to add new capabilities.
 *   [Directory Structure](docs/DIRECTORY_STRUCTURE.md): Codebase organization for capabilities.
 

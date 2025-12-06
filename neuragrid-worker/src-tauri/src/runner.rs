@@ -78,6 +78,9 @@ impl JobRunner {
 
             let _ = self.app_handle.emit("job-status", format!("Job {} finished: Found {} primes", job.id, count));
             info!("Job {} finished: Found {} primes", job.id, count);
+            if let Some(tx) = &self.sender {
+                let _ = tx.send(format!("Job Completed: {}", job.id)).await;
+            }
             return;
         }
 
@@ -108,10 +111,16 @@ impl JobRunner {
                 Ok(msg) => {
                     let _ = self.app_handle.emit("job-status", format!("Job {} success: {}", job.id, msg));
                     info!("Job {} success: {}", job.id, msg);
+                    if let Some(tx) = &self.sender {
+                        let _ = tx.send(format!("Job Completed: {}", job.id)).await;
+                    }
                 }
                 Err(e) => {
                     let _ = self.app_handle.emit("job-status", format!("Job {} failed: {}", job.id, e));
                     error!("Job {} failed: {}", job.id, e);
+                    if let Some(tx) = &self.sender {
+                        let _ = tx.send(format!("Job Failed: {}", job.id)).await;
+                    }
                 }
             }
             return;
@@ -122,6 +131,9 @@ impl JobRunner {
                 Some(p) => p.clone(),
                 None => {
                     let _ = self.app_handle.emit("job-status", format!("Job {} failed: Missing file path arg", job.id));
+                    if let Some(tx) = &self.sender {
+                        let _ = tx.send(format!("Job Failed: {}", job.id)).await;
+                    }
                     return;
                 }
             };
@@ -129,6 +141,9 @@ impl JobRunner {
             let search_terms: Vec<String> = job.args.iter().skip(1).cloned().collect();
             if search_terms.is_empty() {
                  let _ = self.app_handle.emit("job-status", format!("Job {} failed: No search terms provided", job.id));
+                 if let Some(tx) = &self.sender {
+                    let _ = tx.send(format!("Job Failed: {}", job.id)).await;
+                }
                  return;
             }
 
@@ -165,10 +180,16 @@ impl JobRunner {
                 Ok(count) => {
                     let _ = self.app_handle.emit("job-status", format!("Job {} finished: Found {} matches", job.id, count));
                     info!("Job {} finished: Found {} matches", job.id, count);
+                    if let Some(tx) = &self.sender {
+                        let _ = tx.send(format!("Job Completed: {}", job.id)).await;
+                    }
                 }
                 Err(e) => {
                     let _ = self.app_handle.emit("job-status", format!("Job {} failed: {}", job.id, e));
                     error!("Job {} failed: {}", job.id, e);
+                    if let Some(tx) = &self.sender {
+                        let _ = tx.send(format!("Job Failed: {}", job.id)).await;
+                    }
                 }
             }
             return;
@@ -196,16 +217,25 @@ impl JobRunner {
                     Ok(status) => {
                         info!("Job {} finished with status: {}", job.id, status);
                         let _ = self.app_handle.emit("job-status", format!("Job {} finished: {}", job.id, status));
+                        if let Some(tx) = &self.sender {
+                            let _ = tx.send(format!("Job Completed: {}", job.id)).await;
+                        }
                     }
                     Err(e) => {
                         error!("Job {} failed to wait: {}", job.id, e);
                         let _ = self.app_handle.emit("job-status", format!("Job {} error: {}", job.id, e));
+                        if let Some(tx) = &self.sender {
+                            let _ = tx.send(format!("Job Failed: {}", job.id)).await;
+                        }
                     }
                 }
             }
             Err(e) => {
                 error!("Failed to spawn job {}: {}", job.id, e);
                 let _ = self.app_handle.emit("job-status", format!("Job {} spawn failed: {}", job.id, e));
+                if let Some(tx) = &self.sender {
+                    let _ = tx.send(format!("Job Failed: {}", job.id)).await;
+                }
             }
         }
     }

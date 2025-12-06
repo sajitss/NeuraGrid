@@ -51,6 +51,7 @@ struct WorkerInfo {
     gpu: String,
     status: String,
     task: String,
+    pub earnings: f64,
 }
 
 #[derive(Deserialize)]
@@ -65,6 +66,7 @@ struct JobPayload {
     timestamp: u64,
     message: String,
     status: String,
+    tags: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -113,15 +115,30 @@ async fn get_stats(State(state): State<AppState>) -> Json<Stats> {
 async fn get_workers(State(state): State<AppState>) -> Json<Vec<WorkerInfo>> {
     let mut workers = Vec::new();
     
+    // Snapshot clients to release lock before async DB calls
+    let clients_snapshot: Vec<(String, WorkerStatus)> = {
+        let guard = state.clients.lock().unwrap();
+        guard.iter().map(|c| (c.name.clone(), c.status.clone())).collect()
+    };
+
     // Generate info for connected workers
-    for (i, client) in state.clients.lock().unwrap().iter().enumerate() {
+    for (i, (name, status)) in clients_snapshot.into_iter().enumerate() {
+        // Fetch earnings from DB
+        let earnings: f64 = sqlx::query_scalar("SELECT earnings FROM workers WHERE name = ?")
+            .bind(&name)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(Some(0.0))
+            .unwrap_or(0.0);
+
         workers.push(WorkerInfo {
             id: format!("w{}", i),
-            hostname: client.name.clone(),
+            hostname: name,
             ip: format!("192.168.1.1{:02}", i),
             gpu: if i % 2 == 0 { "RTX 4090".to_string() } else { "A100".to_string() },
-            status: format!("{:?}", client.status).to_lowercase(),
-            task: if client.status == WorkerStatus::Busy { "Processing".to_string() } else { "-".to_string() },
+            status: format!("{:?}", status).to_lowercase(),
+            task: if status == WorkerStatus::Busy { "Processing".to_string() } else { "-".to_string() },
+            earnings,
         });
     }
     
@@ -163,13 +180,19 @@ async fn handle_socket(socket: WebSocket, state: AppState, name: String) {
     {
         let mut clients = state.clients.lock().unwrap();
         clients.push(WorkerClient {
-            sender: tx,
+            sender: tx.clone(),
             name: name.clone(),
             status: WorkerStatus::Idle,
         });
     }
     
     println!("New client connected: {}", name);
+
+    // Register worker in DB if not exists
+    let _ = sqlx::query("INSERT OR IGNORE INTO workers (name) VALUES (?)")
+        .bind(&name)
+        .execute(&state.pool)
+        .await;
     
     // Try dispatching jobs immediately as a new worker joined
     try_dispatch_jobs(state.clone()).await;
@@ -193,12 +216,109 @@ async fn handle_socket(socket: WebSocket, state: AppState, name: String) {
                 
                 // Simple heuristic: if message contains "completed" or "finished", mark idle.
                 // In a real system, we'd parse a proper JSON status message.
-                if text.to_lowercase().contains("completed") || text.to_lowercase().contains("finished") {
+                // Parse job completion
+                if text.starts_with("Job Completed: ") {
+                    let job_id = text.trim_start_matches("Job Completed: ").trim();
+                    println!("Worker {} finished job {}", name_clone, job_id);
+
+                    {
+                        let mut clients = state_clone.clients.lock().unwrap();
+                        if let Some(client) = clients.iter_mut().find(|c| c.name == name_clone) {
+                            client.status = WorkerStatus::Idle;
+                        }
+                    }
+
+                    // Update DB
+                    let _ = sqlx::query("UPDATE jobs SET status = 'completed' WHERE id = ?")
+                        .bind(job_id)
+                        .execute(&state_clone.pool)
+                        .await;
+
+                    // Update Earnings
+                    let _ = sqlx::query("UPDATE workers SET earnings = earnings + 0.01 WHERE name = ?")
+                        .bind(&name_clone)
+                        .execute(&state_clone.pool)
+                        .await;
+
+                    // Fetch new earnings total
+                    let new_earnings: f64 = sqlx::query_scalar("SELECT earnings FROM workers WHERE name = ?")
+                        .bind(&name_clone)
+                        .fetch_optional(&state_clone.pool)
+                        .await
+                        .unwrap_or(Some(0.0))
+                        .unwrap_or(0.0);
+
+                    // Send Earnings Update to Worker via existing channel
+                    if tx.send(Message::Text(format!("Earnings Update: {:.2}", new_earnings))).await.is_err() {
+                         println!("Failed to send earnings update to {}", name_clone);
+                    }
+
+                    // Fetch tags for the job
+                    let tags_json: Option<String> = sqlx::query_scalar("SELECT tags FROM jobs WHERE id = ?")
+                        .bind(&job_id)
+                        .fetch_optional(&state_clone.pool)
+                        .await
+                        .unwrap_or_default();
+                    
+                    let tags = tags_json.and_then(|s| serde_json::from_str(&s).ok());
+
+                    // Broadcast completion
+                    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+                    let payload = JobPayload {
+                        id: job_id.to_string(),
+                        timestamp,
+                        message: format!("Job {} completed by {}", job_id, name_clone),
+                        status: "completed".to_string(),
+                        tags,
+                    };
+                    tokio::spawn(broadcast_job_update(state_clone.clone(), payload));
+
+                    try_dispatch_jobs(state_clone.clone()).await;
+                } else if text.starts_with("Job Failed: ") {
+                     let job_id = text.trim_start_matches("Job Failed: ").trim();
+                     println!("Worker {} failed job {}", name_clone, job_id);
+
                      {
                         let mut clients = state_clone.clients.lock().unwrap();
                         if let Some(client) = clients.iter_mut().find(|c| c.name == name_clone) {
                             client.status = WorkerStatus::Idle;
-                            println!("Worker {} is now Idle", name_clone);
+                        }
+                    }
+
+                    // Update DB
+                    let _ = sqlx::query("UPDATE jobs SET status = 'failed' WHERE id = ?")
+                        .bind(job_id)
+                        .execute(&state_clone.pool)
+                        .await;
+
+                    // Fetch tags for the job
+                    let tags_json: Option<String> = sqlx::query_scalar("SELECT tags FROM jobs WHERE id = ?")
+                        .bind(&job_id)
+                        .fetch_optional(&state_clone.pool)
+                        .await
+                        .unwrap_or_default();
+                    
+                    let tags = tags_json.and_then(|s| serde_json::from_str(&s).ok());
+
+                     // Broadcast failure
+                    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+                    let payload = JobPayload {
+                        id: job_id.to_string(),
+                        timestamp,
+                        message: format!("Job {} failed on {}", job_id, name_clone),
+                        status: "failed".to_string(),
+                        tags,
+                    };
+                    tokio::spawn(broadcast_job_update(state_clone.clone(), payload));
+
+                    try_dispatch_jobs(state_clone.clone()).await;
+                } else if text.to_lowercase().contains("completed") || text.to_lowercase().contains("finished") {
+                    // Fallback for legacy messages
+                     {
+                        let mut clients = state_clone.clients.lock().unwrap();
+                        if let Some(client) = clients.iter_mut().find(|c| c.name == name_clone) {
+                            client.status = WorkerStatus::Idle;
+                            println!("Worker {} is now Idle (Legacy)", name_clone);
                         }
                     }
                     try_dispatch_jobs(state_clone.clone()).await;
@@ -293,6 +413,7 @@ async fn submit_job(
         timestamp,
         message: format!("New Job Submitted: {}", job_id),
         status: "pending".to_string(),
+        tags: tags.and_then(|t| serde_json::from_value(t.clone()).ok()),
     };
     tokio::spawn(broadcast_job_update(state, payload));
 
@@ -312,10 +433,12 @@ async fn try_dispatch_jobs(state: AppState) {
 
     println!("Attempting to dispatch {} pending jobs...", pending_jobs.len());
 
-    for (job_id, body, _tags_json) in pending_jobs {
+    for (job_id, body, tags_json) in pending_jobs {
         // Parse body to check for target
         let job_json: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
         let target_worker = job_json.get("target").and_then(|v| v.as_str()).map(|s| s.trim_start_matches('@').to_string());
+        
+        let tags: Option<Vec<String>> = tags_json.and_then(|s| serde_json::from_str(&s).ok());
 
         let mut assigned_worker_idx = None;
         let mut assigned_worker_name = String::new();
@@ -374,6 +497,7 @@ async fn try_dispatch_jobs(state: AppState) {
                     timestamp,
                     message: format!("Job picked up by {}", assigned_worker_name),
                     status: "processing".to_string(),
+                    tags: tags.clone(),
                 };
                 tokio::spawn(broadcast_job_update(state.clone(), payload));
             } else {

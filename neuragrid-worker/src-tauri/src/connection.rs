@@ -48,6 +48,31 @@ impl ConnectionManager {
                                         Some(Ok(Message::Text(text))) => {
                                             info!("Received: {}", text);
                                             let _ = app_handle.emit("log-message", format!("Received: {}", text));
+                                            
+                                            // Handle Earnings Update
+                                            if text.starts_with("Earnings Update: ") {
+                                                let amount_str = text.trim_start_matches("Earnings Update: ").trim();
+                                                info!("Raw amount string: '{}'", amount_str);
+                                                match amount_str.parse::<f64>() {
+                                                    Ok(amount) => {
+                                                        info!("Parsed earnings: {}", amount);
+                                                        let _ = app_handle.emit("log-message", format!("Parsed earnings: {}", amount));
+                                                        if let Err(e) = app_handle.emit("earnings-update", amount.to_string()) {
+                                                             error!("Failed to emit earnings-update: {}", e);
+                                                             let _ = app_handle.emit("log-message", format!("Failed to emit earnings-update: {}", e));
+                                                        } else {
+                                                             info!("Emitted earnings-update: {}", amount);
+                                                             let _ = app_handle.emit("log-message", format!("Emitted earnings-update: {}", amount));
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                         error!("Failed to parse earnings '{}': {}", amount_str, e);
+                                                         let _ = app_handle.emit("log-message", format!("Failed to parse earnings '{}': {}", amount_str, e));
+                                                    }
+                                                }
+                                                continue;
+                                            }
+
                                             // Parse job and run it
                                             match serde_json::from_str::<crate::runner::Job>(&text) {
                                                 Ok(job) => {
@@ -61,7 +86,11 @@ impl ConnectionManager {
                                                 Err(e) => {
                                                     error!("Failed to parse job: {}", e);
                                                     let _ = app_handle.emit("log-message", format!("Failed to parse job: {}", e));
-                                                    let _ = app_handle.emit("job-status", format!("Error parsing job: {}", e));
+                                                    // Only emit job status error if it really looked like a job (simple heuristic or just suppress)
+                                                    // For now, suppress error if it's the Welcome message
+                                                    if !text.starts_with("Welcome") {
+                                                         let _ = app_handle.emit("job-status", format!("Error parsing job: {}", e));
+                                                    }
                                                 }
                                             }
                                         }

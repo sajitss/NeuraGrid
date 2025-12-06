@@ -7,15 +7,56 @@ use connection::ConnectionManager;
 use hardware::HardwareMonitor;
 
 
+use clap::Parser;
+mod config;
+use config::WorkerConfig;
+
+#[derive(Parser, Debug, Clone)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+   #[arg(long)]
+   name: Option<String>,
+   #[arg(long)]
+   url: Option<String>,
+}
+
 fn main() {
+  let cli_args = Args::parse();
   tracing_subscriber::fmt::init();
   tauri::Builder::default()
-    .setup(|app| {
+    .setup(move |app| {
         let handle = app.handle().clone();
-        tauri::async_runtime::spawn(async move {
+        
+        // Load config
+        let mut config = WorkerConfig::load(&handle);
+        let mut config_changed = false;
+        
+        if let Some(name) = cli_args.name.clone() {
+             config.name = Some(name);
+             config_changed = true;
+        }
+        
+        if let Some(url) = cli_args.url.clone() {
+             config.coordinator_url = Some(url);
+             config_changed = true;
+        }
+        
+        if config_changed {
+             if let Err(e) = config.save(&handle) {
+                 eprintln!("Failed to save config: {}", e);
+             }
+        }
+
+        // Determine final values
+        let final_name = config.name.clone().unwrap_or_else(|| {
             let id = uuid::Uuid::new_v4().to_string();
-            let name = format!("Worker-{}", &id[0..4]); // Simple name like Worker-1a2b
-            let manager = ConnectionManager::new(handle.clone(), "ws://127.0.0.1:3000/ws".to_string(), name);
+            format!("Worker-{}", &id[0..4])
+        });
+        
+        let final_url = config.coordinator_url.clone().unwrap_or_else(|| "ws://127.0.0.1:3000/ws".to_string());
+
+        tauri::async_runtime::spawn(async move {
+            let manager = ConnectionManager::new(handle.clone(), final_url, final_name);
             manager.start().await;
         });
 

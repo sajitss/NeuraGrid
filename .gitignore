@@ -9,3 +9,5 @@ dist/
 .vscode/
 .idea/
 *.log
+
+neuragrid-worker/src-tauri/target_*/
