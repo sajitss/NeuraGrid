@@ -12,6 +12,14 @@ cargo build --release
 # The binary will be at target/release/neuragrid-cli.exe
 ```
 
+## Global Options
+
+These options apply to all commands:
+
+*   `--url <URL>`: The base URL of the Coordinator.
+    *   **Default**: `http://localhost:3000`
+    *   **Example**: `--url "http://192.168.1.50:3000"`
+
 ## Commands
 
 ### 1. `submit`

@@ -10,6 +10,10 @@ use url::Url;
 #[command(name = "neuragrid-cli")]
 #[command(about = "CLI for NeuraGrid", long_about = None)]
 struct Cli {
+    /// Coordinator URL (default: http://localhost:3000)
+    #[arg(long)]
+    url: Option<String>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -64,14 +68,41 @@ struct JobUpdateMessage {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+    
+    // Resolve Coordinator URL
+    let base_url_str = cli.url.as_deref().unwrap_or("http://localhost:3000");
+    let base_url = Url::parse(base_url_str).expect("Invalid Coordinator URL");
+    
+    // Helper to get WS URL
+    let get_ws_url = |client_name: &str| -> Url {
+        let mut ws_url = base_url.clone();
+        if ws_url.scheme() == "https" {
+             ws_url.set_scheme("wss").unwrap();
+        } else {
+             ws_url.set_scheme("ws").unwrap();
+        }
+        if !ws_url.path().ends_with("/ws") {
+             ws_url.set_path(&(ws_url.path().to_owned() + "/ws")); 
+             // Logic above is simple; proper joining is better but this works for basic http://host:port inputs
+        }
+        // If the user provided http://host/ws, we might duplicate /ws. 
+        // Better logic: Force path to /ws
+        ws_url.set_path("/ws");
+        
+        ws_url.query_pairs_mut().append_pair("name", client_name);
+        ws_url
+    };
 
     match cli.command {
         Commands::Listen { tag } => {
             println!("Listening for jobs with tag: {}", tag);
+            println!("Coordinator: {}", base_url);
 
             // 1. Fetch initial queue state to see if there are pending jobs
             let client = reqwest::Client::new();
-            let queue_res = client.get("http://localhost:3000/api/queue").send().await;
+            let queue_url = base_url.join("/api/queue").expect("Failed to build queue URL");
+            
+            let queue_res = client.get(queue_url).send().await;
             
             let mut pending_count = 0;
 
@@ -80,6 +111,9 @@ async fn main() {
                     pending_count = *queue_data.get(&tag).unwrap_or(&0);
                     println!("Found {} pending jobs for tag '{}'", pending_count, tag);
                 }
+            } else {
+                 eprintln!("Failed to connect to Coordinator API. Is it running?");
+                 process::exit(1);
             }
 
             if pending_count == 0 {
@@ -88,8 +122,8 @@ async fn main() {
             }
 
             // 2. Connect to WebSocket
-            let url = Url::parse("ws://localhost:3000/ws?name=CLI-Listener").unwrap();
-            let (mut ws_stream, _) = connect_async(url).await.expect("Failed to connect to WebSocket");
+            let ws_url = get_ws_url("CLI-Listener");
+            let (mut ws_stream, _) = connect_async(ws_url).await.expect("Failed to connect to WebSocket");
             println!("Connected to event stream. Waiting for updates...");
 
             while let Some(msg) = ws_stream.next().await {
@@ -133,18 +167,19 @@ async fn main() {
                 job_body["target"] = json!(t);
             }
 
-            println!("Submitting job...");
+            println!("Submitting job to {}...", base_url);
             
             // If waiting, connect to WS FIRST to avoid race condition
             let mut ws_stream = None;
             if wait {
-                let url = Url::parse("ws://localhost:3000/ws?name=CLI-Client").unwrap();
-                let (ws, _) = connect_async(url).await.expect("Failed to connect to WebSocket");
+                let ws_url = get_ws_url("CLI-Client");
+                let (ws, _) = connect_async(ws_url).await.expect("Failed to connect to WebSocket");
                 ws_stream = Some(ws);
                 println!("Connected to event stream.");
             }
 
-            let res = client.post("http://localhost:3000/job")
+            let job_url = base_url.join("/job").expect("Failed to build job URL");
+            let res = client.post(job_url)
                 .json(&job_body)
                 .send()
                 .await;
