@@ -191,7 +191,7 @@
       <button
         on:click={() => (showScheduler = true)}
         title="Weekly Schedule"
-        class="p-2.5 rounded-lg bg-gray-800 border border-gray-700 hover:bg-gray-700 transition-colors text-gray-400 hover:text-white"
+        class="h-10 w-10 flex items-center justify-center rounded-lg bg-gray-800 border border-gray-700 hover:bg-gray-700 transition-colors text-gray-400 hover:text-white"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -220,14 +220,14 @@
       <!-- Silent Mode Toggle (Compact) -->
       <button
         on:click={toggleSilentMode}
-        class="flex items-center gap-3 px-4 py-2.5 rounded-lg border transition-all duration-300 group
+        class="h-10 flex items-center gap-3 px-4 rounded-lg border transition-all duration-300 group
           {config.silent_mode
-          ? 'bg-rose-500/10 border-rose-500/50 hover:bg-rose-500/20'
+          ? 'bg-emerald-500/10 border-emerald-500/50 hover:bg-emerald-500/20'
           : 'bg-gray-800 border-gray-700 hover:bg-gray-750'}"
       >
         <span
           class="text-xs font-bold uppercase tracking-wide {config.silent_mode
-            ? 'text-rose-400'
+            ? 'text-emerald-400'
             : 'text-gray-400'}"
         >
           {config.silent_mode ? "Active" : "Silent"}
@@ -236,7 +236,7 @@
         <!-- Switch Graphic -->
         <div
           class="w-8 h-4 rounded-full relative transition-colors duration-300 {config.silent_mode
-            ? 'bg-rose-500'
+            ? 'bg-emerald-500'
             : 'bg-gray-600'}"
         >
           <div
@@ -248,9 +248,9 @@
       </button>
 
       <div
-        class="px-3 py-1 rounded-full bg-gray-800 border border-gray-700 text-sm h-fit"
+        class="h-10 flex items-center px-4 rounded-lg bg-gray-800 border border-gray-700 text-sm"
       >
-        Status: <span class="text-green-400 font-semibold">{status}</span>
+        Status: <span class="text-green-400 font-semibold ml-1">{status}</span>
       </div>
     </div>
   </header>
