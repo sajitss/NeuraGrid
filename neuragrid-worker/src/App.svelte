@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { listen } from "@tauri-apps/api/event";
+  import { invoke } from "@tauri-apps/api/core";
+  import Scheduler from "./lib/Scheduler.svelte";
 
   let status = "Disconnected";
   let workerName = "Initializing...";
@@ -8,6 +10,46 @@
   let earnings = 0.0;
   let logs: string[] = [];
   let unlisten: (() => void)[] = [];
+
+  // Config state
+  let config = {
+    name: "",
+    coordinator_url: "",
+    silent_mode: false,
+    schedule: Array(7).fill(Array(24).fill(true)),
+  };
+
+  async function loadConfig() {
+    try {
+      config = await invoke("get_config");
+      addLog(`Config loaded. Silent Mode: ${config.silent_mode}`);
+    } catch (e) {
+      addLog(`Failed to load config: ${e}`);
+    }
+  }
+
+  async function toggleSilentMode() {
+    config.silent_mode = !config.silent_mode;
+    try {
+      await invoke("save_config", { newConfig: config });
+      addLog(`Silent Mode set to ${config.silent_mode ? "Active" : "Off"}`);
+    } catch (e) {
+      addLog(`Failed to save config: ${e}`);
+      config.silent_mode = !config.silent_mode; // Revert on failure
+    }
+  }
+
+  let showScheduler = false;
+
+  async function handleSaveSchedule(event: CustomEvent) {
+    config.schedule = event.detail;
+    try {
+      await invoke("save_config", { newConfig: config });
+      addLog("Schedule saved successfully.");
+    } catch (e) {
+      addLog(`Failed to save schedule: ${e}`);
+    }
+  }
 
   function addLog(msg: string) {
     logs = [...logs, `> ${msg}`];
@@ -61,6 +103,7 @@
 
   onMount(async () => {
     addLog("System initialized.");
+    await loadConfig();
 
     try {
       const unlistenStatus = await listen<string>(
@@ -123,7 +166,9 @@
   });
 </script>
 
-<main class="container mx-auto p-4 h-full flex flex-col bg-gray-900 text-white">
+<main
+  class="container mx-auto p-4 h-full flex flex-col bg-gray-900 text-white relative"
+>
   <header class="flex justify-between items-center mb-8">
     <div class="flex items-center gap-4">
       <img
@@ -140,9 +185,70 @@
         <p class="text-sm text-gray-400 font-mono">@{workerName}</p>
       </div>
     </div>
-    <div class="flex gap-2">
+
+    <div class="flex items-center gap-3">
+      <!-- Schedule Button (Icon Only) -->
+      <button
+        on:click={() => (showScheduler = true)}
+        title="Weekly Schedule"
+        class="p-2.5 rounded-lg bg-gray-800 border border-gray-700 hover:bg-gray-700 transition-colors text-gray-400 hover:text-white"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          ><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line
+            x1="16"
+            y1="2"
+            x2="16"
+            y2="6"
+          ></line><line x1="8" y1="2" x2="8" y2="6"></line><line
+            x1="3"
+            y1="10"
+            x2="21"
+            y2="10"
+          ></line></svg
+        >
+      </button>
+
+      <!-- Silent Mode Toggle (Compact) -->
+      <button
+        on:click={toggleSilentMode}
+        class="flex items-center gap-3 px-4 py-2.5 rounded-lg border transition-all duration-300 group
+          {config.silent_mode
+          ? 'bg-rose-500/10 border-rose-500/50 hover:bg-rose-500/20'
+          : 'bg-gray-800 border-gray-700 hover:bg-gray-750'}"
+      >
+        <span
+          class="text-xs font-bold uppercase tracking-wide {config.silent_mode
+            ? 'text-rose-400'
+            : 'text-gray-400'}"
+        >
+          {config.silent_mode ? "Active" : "Silent"}
+        </span>
+
+        <!-- Switch Graphic -->
+        <div
+          class="w-8 h-4 rounded-full relative transition-colors duration-300 {config.silent_mode
+            ? 'bg-rose-500'
+            : 'bg-gray-600'}"
+        >
+          <div
+            class="absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform duration-300 {config.silent_mode
+              ? 'translate-x-4'
+              : 'translate-x-0'}"
+          ></div>
+        </div>
+      </button>
+
       <div
-        class="px-3 py-1 rounded-full bg-gray-800 border border-gray-700 text-sm"
+        class="px-3 py-1 rounded-full bg-gray-800 border border-gray-700 text-sm h-fit"
       >
         Status: <span class="text-green-400 font-semibold">{status}</span>
       </div>
@@ -213,4 +319,10 @@
       {/each}
     </div>
   </div>
+
+  <Scheduler
+    bind:isOpen={showScheduler}
+    schedule={config.schedule}
+    on:save={handleSaveSchedule}
+  />
 </main>

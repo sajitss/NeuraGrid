@@ -11,6 +11,28 @@ use clap::Parser;
 mod config;
 use config::WorkerConfig;
 
+use std::sync::{Arc, RwLock};
+use tauri::State;
+use tauri::Manager;
+
+struct AppState {
+    config: Arc<RwLock<WorkerConfig>>,
+}
+
+#[tauri::command]
+fn get_config(state: State<AppState>) -> WorkerConfig {
+    state.config.read().unwrap().clone()
+}
+
+#[tauri::command]
+fn save_config(app_handle: tauri::AppHandle, state: State<AppState>, new_config: WorkerConfig) -> Result<(), String> {
+    {
+        let mut config = state.config.write().unwrap();
+        *config = new_config.clone();
+    } // Drop lock
+    new_config.save(&app_handle).map_err(|e| e.to_string())
+}
+
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -47,7 +69,7 @@ fn main() {
              }
         }
 
-        // Determine final values
+        // Determine final values before moving config
         let final_name = config.name.clone().unwrap_or_else(|| {
             let id = uuid::Uuid::new_v4().to_string();
             format!("Worker-{}", &id[0..4])
@@ -55,8 +77,11 @@ fn main() {
         
         let final_url = config.coordinator_url.clone().unwrap_or_else(|| "ws://127.0.0.1:3000/ws".to_string());
 
+        let app_config_state = Arc::new(RwLock::new(config));
+        app.manage(AppState { config: app_config_state.clone() });
+
         tauri::async_runtime::spawn(async move {
-            let manager = ConnectionManager::new(handle.clone(), final_url, final_name);
+            let manager = ConnectionManager::new(handle.clone(), final_url, final_name, app_config_state);
             manager.start().await;
         });
 
@@ -84,6 +109,7 @@ fn main() {
 
         Ok(())
     })
+    .invoke_handler(tauri::generate_handler![get_config, save_config])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }

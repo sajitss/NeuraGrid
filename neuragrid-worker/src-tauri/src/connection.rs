@@ -1,26 +1,30 @@
+use std::sync::{Arc, RwLock};
+use chrono::{Local, Datelike, Timelike};
+use crate::config::WorkerConfig;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures::{SinkExt, StreamExt};
 use std::time::Duration;
 use tauri::Emitter;
 use tracing::{info, error, warn};
-
 use tokio::sync::mpsc;
 
 pub struct ConnectionManager {
     url: String,
     name: String,
     app_handle: tauri::AppHandle,
+    config: Arc<RwLock<WorkerConfig>>,
 }
 
 impl ConnectionManager {
-    pub fn new(app_handle: tauri::AppHandle, url: String, name: String) -> Self {
-        Self { app_handle, url, name }
+    pub fn new(app_handle: tauri::AppHandle, url: String, name: String, config: Arc<RwLock<WorkerConfig>>) -> Self {
+        Self { app_handle, url, name, config }
     }
 
     pub async fn start(&self) {
         let url = format!("{}?name={}", self.url, self.name);
         let app_handle = self.app_handle.clone();
         let name = self.name.clone();
+        let config_store = self.config.clone();
 
         tokio::spawn(async move {
             info!("ConnectionManager task started");
@@ -76,6 +80,46 @@ impl ConnectionManager {
                                             // Parse job and run it
                                             match serde_json::from_str::<crate::runner::Job>(&text) {
                                                 Ok(job) => {
+                                                    // Check Scheduler / Silent Mode
+                                                    let allowed = {
+                                                        let cfg = config_store.read().unwrap();
+                                                        if cfg.silent_mode {
+                                                            info!("Refusing job {} due to Silent Mode", job.id);
+                                                            let _ = app_handle.emit("log-message", "Refused job: Silent Mode is ON".to_string());
+                                                            false
+                                                        } else {
+                                                            let now = Local::now();
+                                                            // weekday: Mon=0 .. Sun=6 in chrono::Weekday::num_days_from_monday
+                                                            // But we mapped 0=Today. Let's align with config structure:
+                                                            // We defined 0=Today (relative) in the prompt/impl plan? 
+                                                            // Actually, simpler to use fixed days Mon=0.
+                                                            // Let's assume index 0 = Monday for simplicity in this implementation, 
+                                                            // or assume index 0 = Today if the UI handles shifting.
+                                                            // Let's use 0 = Monday for stability.
+                                                            let day_idx = now.weekday().num_days_from_monday() as usize; 
+                                                            let hour_idx = now.hour() as usize;
+                                                            if let Some(day_sched) = cfg.schedule.get(day_idx) {
+                                                                if let Some(active) = day_sched.get(hour_idx) {
+                                                                    if !*active {
+                                                                        info!("Refusing job {} due to Schedule (Day {} Hour {})", job.id, day_idx, hour_idx);
+                                                                        let _ = app_handle.emit("log-message", format!("Refused job: Schedule restriction (Day {} Hour {})", day_idx, hour_idx));
+                                                                        false
+                                                                    } else {
+                                                                         true
+                                                                    }
+                                                                } else { true }
+                                                            } else { true }
+                                                        }
+                                                    };
+
+                                                    if !allowed {
+                                                         // Send rejection
+                                                         if tx.send(format!("Job Rejected: {}", job.id)).await.is_err() {
+                                                             error!("Failed to send rejection");
+                                                         }
+                                                         continue;
+                                                    }
+
                                                     let app_handle_clone = app_handle.clone();
                                                     let tx_clone = tx.clone();
                                                     tokio::spawn(async move {

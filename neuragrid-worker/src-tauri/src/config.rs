@@ -3,19 +3,34 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WorkerConfig {
     pub name: Option<String>,
     pub coordinator_url: Option<String>,
+    #[serde(default)]
+    pub silent_mode: bool,
+    #[serde(default = "default_schedule")]
+    pub schedule: Vec<Vec<bool>>, // 7 days (index 0=Today) x 24 hours
+}
+
+fn default_schedule() -> Vec<Vec<bool>> {
+    // Default: All days, All hours enabled
+    vec![vec![true; 24]; 7]
+}
+
+impl Default for WorkerConfig {
+    fn default() -> Self {
+        Self {
+            name: None,
+            coordinator_url: None,
+            silent_mode: false,
+            schedule: default_schedule(),
+        }
+    }
 }
 
 impl WorkerConfig {
     fn get_config_path(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
-        // Use app_local_data_dir or app_config_dir. 
-        // In Tauri v2, we access paths via the path manager.
-        // Assuming app_handle.path() is available or a similar mechanism.
-        // For 2.0.0-rc, it's typically app_handle.path().app_config_dir()
-        
         let path_resolver = app_handle.path();
         match path_resolver.app_config_dir() {
             Ok(mut path) => {
